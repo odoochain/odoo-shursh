@@ -1,122 +1,132 @@
 /** @odoo-module */
-const { Component, useRef, useState, onWillUnmount } = owl;
-import { Dialog } from "@web/core/dialog/dialog";
-import { session } from "@web/session";
+import { registerMessagingComponent } from "@mail/utils/messaging_component";
+const components = {
+  Dialog: require("web.OwlDialog"),
+};
+
+const { Component, useState, useRef } = owl;
 
 class AttachmentWebcamDialog extends Component {
-  //   setup() {
-  //     super.setup();
-  //     console.log(1)
-  //     onWillUnmount(() => this._willUnmount());
-  // }
-  async setup() {
-    super.setup();
-    console.log(2);
+  /**
+   * @override
+   */
+  constructor(...args) {
+    super(...args);
+
     this.state = useState({
-      snapshot: "",
+      snapshot: "/web_attachment_webcam/static/src/img/webcam_placeholder.png",
     });
-    onWillUnmount(() => this._willUnmount());
-    this.video = useRef("video");
-    this.saveButton = useRef("saveButton");
-    this.selectCamera = useRef("selectCamera");
-    await this.initSelectCamera();
-    await this.startVideo();
+    // to manually trigger the dialog close event
+    this._dialogRef = useRef("dialog");
+    this._liveWebcamDiv = useRef("live_webcam");
   }
 
-  _willUnmount() {
-    this.stopVideo();
-  }
+  // get attachmentUrlNoDownload() {
+  //     if (this.attachment.isTemporary) {
+  //         return '';
+  //     }
+  //     return this.env.session.url('/web/content', {
+  //         id: this.attachment.id,
+  //     });
+  // }
 
-  async initSelectCamera() {
-    // добавляем все доступные камеры в селекшен
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const videoDevices = devices.filter(
-      (device) => device.kind === "videoinput",
-    );
-    videoDevices.map((videoDevice) => {
-      let opt = document.createElement("option");
-      opt.value = videoDevice.deviceId;
-      opt.innerHTML = videoDevice.label;
-      this.selectCamera.el.append(opt);
-      return opt;
-    });
-  }
-
-  onChangeDevice(e) {
-    // добавляем обработчик смены камеры
-    const device = $(e.target).val();
-    this.stopVideo();
-    this.startVideo(device);
-  }
-
-  takeSnapshot(video) {
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const canvasContext = canvas.getContext("2d");
-    canvasContext.drawImage(video, 0, 0);
-    return canvas.toDataURL("image/jpeg");
-  }
-
-  async handleStream(stream) {
-    const def = $.Deferred();
-
-    // устанавливаем выбранную камеру в селекшене
-    if (stream && stream.getVideoTracks().length)
-      this.selectCamera.el.value = stream
-        .getVideoTracks()[0]
-        .getSettings().deviceId;
-
-    // отображаем видео в диалоге
-    this.video.el.srcObject = stream;
-
-    this.video.el.addEventListener("canplay", () => {
-      this.video.el.play();
-    });
-
-    this.video.el.addEventListener(
-      "loadedmetadata",
-      () => {
-        this.streamStarted = true;
-        def.resolve();
-      },
-      false,
-    );
-
-    return def;
-  }
-
-  async startVideo(device = null) {
-    try {
-      let config = {
-        width: {
-          min: 640,
-          ideal: session.am_webcam_width ? session.am_webcam_width : 1280,
-        },
-        height: {
-          min: 480,
-          ideal: session.am_webcam_height ? session.am_webcam_height : 720,
-        },
-        facingMode: this.props.mode ? "user" : "environment",
+  async willStart() {
+    let options = {
+      width: this.env.session.am_webcam_width
+        ? this.env.session.am_webcam_width
+        : 320,
+      height: this.env.session.am_webcam_height
+        ? this.env.session.am_webcam_height
+        : 240,
+      dest_width: this.env.session.am_webcam_width
+        ? this.env.session.am_webcam_width
+        : 320,
+      dest_height: this.env.session.am_webcam_height
+        ? this.env.session.am_webcam_height
+        : 240,
+      image_format: "jpeg",
+      jpeg_quality: 90,
+      force_flash: false,
+      fps: 45,
+      swfURL: "/attachments_manager/static/src/libs/webcam.swf",
+    };
+    if (this.props.webcamRear)
+      options.constraints = {
+        video: true,
+        facingMode: "environment",
       };
-      if (device) config.deviceId = { exact: device };
-
-      const videoStream = await navigator.mediaDevices.getUserMedia({
-        video: config,
-      });
-      await this.handleStream(videoStream);
-    } catch (e) {
-      console.error("*** getUserMedia", e);
-    } finally {
-    }
+    Webcam.set(options);
   }
 
-  stopVideo() {
-    // останавливае видео поток
-    this.streamStarted = false;
-    this.video.el.srcObject.getTracks().forEach((track) => {
-      track.stop();
+  mounted() {
+    Webcam.attach(this._liveWebcamDiv.el);
+  }
+
+  willUnmount() {
+    Webcam.reset();
+  }
+  //--------------------------------------------------------------------------
+  // Public
+  //--------------------------------------------------------------------------
+
+  /**
+   * @returns {string}
+   */
+  getBody() {
+    return _.str.sprintf(
+      this.env._t(
+        `You can setting default photo size and quality in general settings`,
+      ),
+    );
+  }
+
+  /**
+   * @returns {string}
+   */
+  getTitle() {
+    return this.env._t("Attachments manager Webcam");
+  }
+
+  //--------------------------------------------------------------------------
+  // Handlers
+  //--------------------------------------------------------------------------
+
+  /**
+   * @private
+   */
+  _onClickCancel(ev) {
+    ev.stopPropagation();
+    ev.preventDefault();
+    this._dialogRef.comp._close();
+  }
+
+  _onWebcamSnapshot() {
+    Webcam.snap((data) => {
+      // Display Snap besides Live WebCam Preview
+      this.state.snapshot = data;
     });
+  }
+
+  async _onWebcamSave(ev) {
+    if (!this.state.snapshot) return;
+    /*
+            Size in base64 is approx 33% overhead the original data size.
+
+            Source: -> http://stackoverflow.com/questions/11402329/base64-encoded-image-size
+                    -> http://stackoverflow.com/questions/6793575/estimating-the-size-of-binary-data-encoded-as-a-b64-string-in-python
+
+                    -> https://en.wikipedia.org/wiki/Base64
+                    [ The ratio of output bytes to input bytes is 4:3 (33% overhead).
+                    Specifically, given an input of n bytes, the output will be "4[n/3]" bytes long in base64,
+                    including padding characters. ]
+        */
+
+    // From the above info, we doing the opposite stuff to find the approx size of Image in bytes.
+    //var approx_img_size = 3 * (img_data_base64.length / 4)  // like... "3[n/4]"
+
+    // Upload image in Binary Field
+    await this.onwebcam(this.state.snapshot.split(",")[1], "image/jpeg");
+    this._onClickCancel(ev);
   }
 
   urltoFile(url, filename, mimeType) {
@@ -130,55 +140,18 @@ class AttachmentWebcamDialog extends Component {
   }
 
   async onwebcam(base64, mimetype) {
-    const file = await this.urltoFile(
+    let file = await this.urltoFile(
       "data:" + mimetype + ";base64," + base64,
       "snapshot.jpg",
       mimetype,
     );
-    await this.props.onWebcamCallback(file);
-  }
-
-  //--------------------------------------------------------------------------
-  // Handlers
-  //--------------------------------------------------------------------------
-
-  /**
-   * @private
-   */
-  _onClickCancel(ev) {
-    ev.stopPropagation();
-    ev.preventDefault();
-    this.stopVideo();
-    this.props.close();
-  }
-
-  _onWebcamSnapshot() {
-    this.state.snapshot = this.takeSnapshot(this.video.el);
-  }
-
-  async _onWebcamSave(ev) {
-    if (!this.state.snapshot) return;
-
-    await this.onwebcam(this.state.snapshot.split(",")[1], "image/jpeg");
-    this._onClickCancel(ev);
+    this.trigger("dialog-file", file);
   }
 }
 
-AttachmentWebcamDialog.props = {
-  mode: { type: Boolean, optional: true },
-  onWebcamCallback: { type: Function, optional: true },
-  close: Function,
-};
-
-AttachmentWebcamDialog.components = {
-  Dialog,
-};
-
-AttachmentWebcamDialog.defaultProps = {
-  mode: false,
-  onWebcamCallback: () => {},
-};
-
-AttachmentWebcamDialog.template =
-  "web_attachment_webcam.AttachmentWebcamDialog";
+Object.assign(AttachmentWebcamDialog, {
+  components,
+  template: "web_attachment_webcam.AttachmentWebcamDialog",
+});
+registerMessagingComponent(AttachmentWebcamDialog);
 export default AttachmentWebcamDialog;
