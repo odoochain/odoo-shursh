@@ -50,7 +50,6 @@ class ResConfigSettingsIapFirebase(models.TransientModel):
     )
     mail_firebase_key = fields.Char(
         string="Mail Firebase key",
-        default="AAAAmsbwHC4:APA91bHOpTMKFkbZ5qhAVFsb0Qgk2Hsgh3H_oYh_8xxYleJzGm0LHcljtcUYBP-KWmB5hITRrLFEHLJOphWSwLUr9Qtr4md3VdTKu8_tHl7k69RmfIaAiCj88fJisRmWVJACyChGKJYf",
         help="Secret firebase key",
     )
 
@@ -81,8 +80,6 @@ class ResConfigSettingsIapFirebase(models.TransientModel):
         mail_firebase_key = self.env["ir.config_parameter"].get_param(
             "mail_firebase_key"
         )
-        if not mail_firebase_key:
-            mail_firebase_key = "AAAAmsbwHC4:APA91bHOpTMKFkbZ5qhAVFsb0Qgk2Hsgh3H_oYh_8xxYleJzGm0LHcljtcUYBP-KWmB5hITRrLFEHLJOphWSwLUr9Qtr4md3VdTKu8_tHl7k69RmfIaAiCj88fJisRmWVJACyChGKJYf"
         res.update(mail_firebase_key=mail_firebase_key)
         res.update(
             res_users_firebase_title_web=self.env[
